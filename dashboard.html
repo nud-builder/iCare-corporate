@@ -661,7 +661,7 @@ td .service-pill {
 // ════════════════════════════════════════
 const CFG = {
   // URL ของ Apps Script (ใช้ URL เดิมที่สร้างไว้)
-  API_URL: "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE",
+  API_URL: "https://script.google.com/macros/s/AKfycbyuHl4xiGGBpHG4VoHQOz3xvMPiFl18Z7Zm_JMf7ylK0C2VPFV79rlnVqamcaFQ5kzy/exec",
 
   // Users — username (Branch ID): { password, name, role, branches }
   // branches: [] = เห็นทุกสาขา  |  role: "admin" / "branch"
@@ -711,8 +711,9 @@ let soundEnabled = true;   // เสียงแจ้งเตือน (toggle
 // AUTH
 // ════════════════════════════════════════
 function doLogin() {
-  const u = document.getElementById('loginUser').value.trim().toLowerCase();
-  const p = document.getElementById('loginPass').value;
+  const raw = document.getElementById('loginUser').value.trim();
+  const p   = document.getElementById('loginPass').value;
+  const u   = Object.keys(CFG.USERS).find(k => k.toLowerCase() === raw.toLowerCase()) || raw;
   const user = CFG.USERS[u];
   if (!user || user.password !== p) {
     document.getElementById('loginErr').classList.add('show');
