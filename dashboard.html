@@ -106,6 +106,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .topbar-refresh .spin { display:none; animation:spin 0.8s linear infinite; }
 .topbar-refresh.loading .spin { display:inline; }
 .topbar-refresh.loading .static { display:none; }
+#soundBtn.muted { color:var(--muted); border-color:var(--border); opacity:0.6; }
 @keyframes spin{to{transform:rotate(360deg)}}
 
 .user-chip {
@@ -428,6 +429,9 @@ td .service-pill {
         <span class="spin">↻</span>
         <span>รีเฟรช</span>
       </button>
+      <button class="topbar-refresh" id="soundBtn" onclick="toggleSound()" title="เปิด/ปิดเสียงแจ้งเตือน">
+        🔊 <span id="soundLabel">เสียง</span>
+      </button>
       <div class="topbar-notif" onclick="toggleNotifPanel()" id="notifBtn">
         🔔
         <div class="notif-badge" id="notifBadge">0</div>
@@ -659,13 +663,31 @@ const CFG = {
   // URL ของ Apps Script (ใช้ URL เดิมที่สร้างไว้)
   API_URL: "https://script.google.com/macros/s/AKfycbyuHl4xiGGBpHG4VoHQOz3xvMPiFl18Z7Zm_JMf7ylK0C2VPFV79rlnVqamcaFQ5kzy/exec",
 
-  // Users — username: { password, name, role, branches }
-  // branches: [] = เห็นทุกสาขา, ['cm_maya'] = เห็นแค่สาขานั้น
+  // Users — username (Branch ID): { password, name, role, branches }
+  // branches: [] = เห็นทุกสาขา  |  role: "admin" / "branch"
+  // Password default = ID + "@icare"  เช่น ID897 → password "897@icare"
   USERS: {
-    "admin":   { password:"icare2025",   name:"Admin",            role:"admin",   branches:[] },
-    "chiangmai":{ password:"cm2025",    name:"ทีมเชียงใหม่",      role:"branch",  branches:["เชียงใหม่"] },
-    "bangkok": { password:"bkk2025",    name:"ทีมกรุงเทพ",        role:"branch",  branches:["กรุงเทพ","สมุทรปราการ"] },
-    "phitsanulok":{ password:"pl2025",  name:"ทีมพิษณุโลก",      role:"branch",  branches:["พิษณุโลก"] },
+    // ── ADMIN ───────────────────────────────────────────────
+    "admin":    { password:"icare@2026",  name:"Admin (ทุกสาขา)",  role:"admin",  branches:[] },
+
+    // ── เชียงใหม่ ───────────────────────────────────────────
+    "ID897":    { password:"897@icare",   name:"เมญ่า (MAYA)",                        role:"branch", branches:["เมญ่า"] },
+    "ID2305":   { password:"2305@icare",  name:"เซ็นทรัลเฟสติวัล",                   role:"branch", branches:["เฟสติวัล","Festival"] },
+    "ID606":    { password:"606@icare",   name:"เซ็นทรัลแอร์พอร์ต",                  role:"branch", branches:["แอร์พอร์ต","Airport","ชั้น 1"] },
+
+    // ── พิษณุโลก ────────────────────────────────────────────
+    "ID603":    { password:"603@icare",   name:"เซ็นทรัลพิษณุโลก",                   role:"branch", branches:["พิษณุโลก"] },
+    "ID1786":   { password:"1786@icare",  name:"เซ็นทรัลพิษณุโลก ชั้น 1 (Studio7)", role:"branch", branches:["พิษณุโลก"] },
+
+    // ── นครสวรรค์ ────────────────────────────────────────────
+    "ID731":    { password:"731@icare",   name:"Big C (V Square)",                    role:"branch", branches:["นครสวรรค์","V Square","Big C"] },
+
+    // ── สมุทรปราการ ─────────────────────────────────────────
+    "ID769":    { password:"769@icare",   name:"เมกาบางนา",                           role:"branch", branches:["เมกาบางนา","Mega Bangna"] },
+    "ID2811":   { password:"2811@icare",  name:"เมกาบางนา ชั้น 2 (Studio7)",         role:"branch", branches:["เมกาบางนา","Mega Bangna"] },
+
+    // ── กรุงเทพ ─────────────────────────────────────────────
+    "ID2789":   { password:"2789@icare",  name:"ดุสิต เซ็นทรัล พาร์ค (Studio7)",    role:"branch", branches:["ดุสิต","Dusit"] },
   },
 
   // Refresh interval (ms)
@@ -682,7 +704,8 @@ let currentRow  = null;
 let currentView = 'table';
 let notifications = [];
 let knownRefs   = new Set();
-let pollTimer   = null;
+let pollTimer    = null;
+let soundEnabled = true;   // เสียงแจ้งเตือน (toggle ได้)
 
 // ════════════════════════════════════════
 // AUTH
@@ -843,12 +866,12 @@ function renderTableView() {
         <div class="name">${r.firstName||''} ${r.lastName||''}</div>
         <div class="ref">${r.refNumber||''}</div>
       </td>
-      <td><span style="font-family:var(--mono);font-size:12px">${r.phone||'—'}</span></td>
+      <td><span style="font-family:var(--mono);font-size:12px">${fmtPhone(r.phone)}</span></td>
       <td>${(r.services||'—').split(',').map(s=>`<span class="service-pill">${s.trim()}</span>`).join('')}</td>
       <td><span class="branch-tag">${shortBranch(r.branch)}</span></td>
-      <td style="font-size:12px;color:var(--muted)">${r.visitDate||'—'}</td>
+      <td style="font-size:12px;color:var(--muted)">${fmtDate(r.visitDate)}</td>
       <td>${statusBadge(r)}</td>
-      <td style="font-size:11px;color:var(--muted)">${r.statusUpdatedAt||'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${fmtDate(r.statusUpdatedAt)}</td>
     </tr>
   `).join('');
 }
@@ -873,8 +896,8 @@ function renderCardsView() {
       </div>
       <div class="card-services" style="font-size:12px;color:var(--muted);margin-bottom:10px">${r.services||'—'}</div>
       <div class="card-bottom">
-        <span class="card-date">📅 ${r.visitDate||'ไม่ระบุวัน'}</span>
-        <span class="card-phone">${r.phone||''}</span>
+        <span class="card-date">📅 ${fmtDate(r.visitDate)||'ไม่ระบุวัน'}</span>
+        <span class="card-phone">${fmtPhone(r.phone)}</span>
       </div>
     </div>`;
   }).join('');
@@ -884,6 +907,46 @@ function shortBranch(b='') {
   if (!b) return '—';
   const parts = b.split('—');
   return parts[parts.length-1]?.trim() || b;
+}
+
+// ── Format phone: ensure leading 0 ────────────────────
+function fmtPhone(raw='') {
+  if (!raw || raw === '-') return '—';
+  let p = String(raw).replace(/\D/g,''); // digits only
+  if (p.length === 9 && !p.startsWith('0')) p = '0' + p;  // 863029356 → 0863029356
+  if (p.length === 10) return p.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+  if (p.length === 9)  return p.replace(/(\d{2})(\d{3})(\d{4})/, '0$1-$2-$3');
+  return p;
+}
+
+// ── Format date: any format → dd/mm/yyyy ─────────────
+function fmtDate(raw='') {
+  if (!raw || raw === '-' || raw === '—') return '—';
+  const s = String(raw).trim();
+
+  // Already dd/mm/yyyy
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) return s;
+
+  // Try native Date parse
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  // Pattern: "13/3/2026" or "3/13/2026" - try to detect
+  const parts = s.split(/[\/\-\.]/);
+  if (parts.length === 3) {
+    let [a,b,y] = parts;
+    if (y?.length === 4) {
+      const dd = String(a).padStart(2,'0');
+      const mm = String(b).padStart(2,'0');
+      return `${dd}/${mm}/${y}`;
+    }
+  }
+  return s; // fallback
 }
 
 function updateStats() {
@@ -929,10 +992,10 @@ function openModal(idx) {
 
   document.getElementById('modalName').textContent = `${r.firstName||''} ${r.lastName||''}`;
   document.getElementById('modalRef').textContent  = r.refNumber || '—';
-  document.getElementById('mPhone').textContent    = r.phone || '—';
+  document.getElementById('mPhone').textContent    = fmtPhone(r.phone);
   document.getElementById('mBranch').textContent   = r.branch || '—';
   document.getElementById('mServices').textContent = r.services || '—';
-  document.getElementById('mVisitDate').textContent= r.visitDate || '—';
+  document.getElementById('mVisitDate').textContent= fmtDate(r.visitDate);
   document.getElementById('mCampaign').textContent = r.campaign || '—';
 
   if (r.note && r.note !== '-') {
@@ -1022,7 +1085,46 @@ function requestNotifPermission() {
   }
 }
 
+// ── Sound using Web Audio API (ไม่ต้องโหลดไฟล์) ─────
+function playNotifSound() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [880, 1100];
+    notes.forEach((freq, i) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.18);
+      gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + i * 0.18 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.35);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.4);
+    });
+  } catch(e) { /* AudioContext ไม่รองรับ */ }
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  const btn   = document.getElementById('soundBtn');
+  const label = document.getElementById('soundLabel');
+  if (soundEnabled) {
+    btn.classList.remove('muted');
+    btn.textContent = '';
+    btn.innerHTML   = '🔊 <span id="soundLabel">เสียง</span>';
+    playNotifSound(); // ทดสอบเสียง
+  } else {
+    btn.classList.add('muted');
+    btn.innerHTML = '🔇 <span id="soundLabel">ปิดเสียง</span>';
+  }
+}
+
 function pushNotification(title, msg, row) {
+  playNotifSound();
+
   // In-app notification
   notifications.unshift({ title, msg, time: new Date(), row, read:false });
   renderNotifPanel();
